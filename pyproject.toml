@@ -11,8 +11,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Database driver extras — install only what the engagement needs.
 postgres = ["psycopg[binary]>=3.1"]
 mysql = ["pymysql>=1.1.0"]
+snowflake = ["snowflake-sqlalchemy>=1.6"]
+bigquery = ["sqlalchemy-bigquery>=1.11"]
+databricks = ["databricks-sqlalchemy>=1.0"]
+
+# Convenience meta-extra: all warehouse dialects.
+warehouses = [
+    "snowflake-sqlalchemy>=1.6",
+    "sqlalchemy-bigquery>=1.11",
+    "databricks-sqlalchemy>=1.0",
+]
+
 dev = ["ruff>=0.6", "pytest>=8.0"]
 
 [tool.setuptools.packages.find]

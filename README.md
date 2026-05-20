@@ -163,6 +163,28 @@ Don't fork `tools/` or `adapters/` per customer — if a customer needs
 different behavior, file an issue / PR upstream so every future engagement
 benefits.
 
+## Local dev with a Postgres stand-in
+
+No customer database access yet, or you want to iterate on prompts/adapters
+against a real engine before wiring Snowflake / BigQuery / Databricks? The
+repo ships a `docker-compose.dev.yml` that runs Postgres 16 locally and a
+synthetic SaaS schema (`customer`, `subscription`, `event`, `orders`) to
+exercise the agent against multi-table reasoning, JSONB, dates, and enums.
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+psql postgresql://dev:dev@localhost:5432/demo -f examples/seed_demo.sql
+
+python run.py "How many enterprise customers had purchases this month?" \
+    --dsn postgresql+psycopg://dev:dev@localhost:5432/demo
+```
+
+Work done here transfers directly to Snowflake when you wire it up — same
+`"name"` identifier quoting, same role-based read-only enforcement pattern.
+What does *not* transfer: Snowflake-specific auth (`SNOWFLAKE_ACCOUNT`/
+`WAREHOUSE`/`ROLE`), warehouse-only SQL (`QUALIFY`, `MATCH_RECOGNIZE`), and
+cost behavior.
+
 ## Why this starter and not LangChain / CrewAI / etc.
 
 - **One file per concern.** Six primitives in `sql.py`, ~150 LoC adapter,

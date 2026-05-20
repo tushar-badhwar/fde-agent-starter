@@ -1,12 +1,20 @@
-"""SQL tool primitives over SQLite (and Postgres later).
+"""SQL tool primitives over any SQLAlchemy-compatible engine.
 
-Six primitives per v0_proposal.md, all stateless except `connect` which registers
-an engine in a process-local map keyed by connection_id.
+Six primitives, all stateless except `connect` which registers an engine in a
+process-local map keyed by `connection_id`.
 
-Read-only enforcement:
-  - regex pre-check against the SQL string (SELECT/WITH/EXPLAIN/PRAGMA only)
-  - SQLite-level pragma `query_only = ON` set at connection time
-  - Postgres should connect as a role with only SELECT grants (out of scope here)
+Read-only enforcement is layered:
+  1. Regex guard on every `execute_sql` / `validate_sql` — only
+     SELECT/WITH/EXPLAIN/PRAGMA allowed.
+  2. SQLite: `PRAGMA query_only = ON` at connection time. Engine-level
+     enforcement; the connection physically cannot write.
+  3. Warehouses (Snowflake/BigQuery/Databricks/MySQL/Postgres): connect as a
+     role/user with SELECT grants only. The regex guard is defense in depth;
+     the database is the authority.
+
+Identifier quoting uses SQLAlchemy's `dialect.identifier_preparer.quote()`
+so `describe_schema` and `sample_rows` work across `"name"` (SQLite, Postgres,
+Snowflake) and `` `name` `` (MySQL, BigQuery, Databricks).
 """
 
 from __future__ import annotations
@@ -35,8 +43,18 @@ def _get(connection_id: str) -> Engine:
     return engine
 
 
+def _quote(engine: Engine, name: str) -> str:
+    """Quote an identifier the way the engine's dialect expects."""
+    return engine.dialect.identifier_preparer.quote(name)
+
+
 def connect(dsn: str) -> dict[str, Any]:
-    """Open a database connection. Returns a connection_id for subsequent calls."""
+    """Open a database connection. Returns a `connection_id` for subsequent calls.
+
+    For warehouses (Snowflake/BigQuery/Databricks) and Postgres/MySQL, connect
+    via a read-only role at the DB level — this function does not attempt to
+    enforce read-only beyond SQLite's pragma + the regex guard in `execute_sql`.
+    """
     engine = create_engine(dsn, future=True)
 
     if engine.dialect.name == "sqlite":
@@ -87,7 +105,9 @@ def describe_schema(connection_id: str, tables: list[str]) -> dict[str, Any]:
         ]
         try:
             with engine.connect() as conn:
-                row_count = conn.execute(text(f'SELECT COUNT(*) FROM "{t}"')).scalar() or 0
+                row_count = conn.execute(
+                    text(f"SELECT COUNT(*) FROM {_quote(engine, t)}")
+                ).scalar() or 0
         except Exception:
             row_count = None
         out[t] = {"columns": cols, "primary_keys": pk, "foreign_keys": fks, "row_count": row_count}
@@ -97,7 +117,9 @@ def describe_schema(connection_id: str, tables: list[str]) -> dict[str, Any]:
 def sample_rows(connection_id: str, table: str, n: int = 5) -> dict[str, Any]:
     engine = _get(connection_id)
     with engine.connect() as conn:
-        result = conn.execute(text(f'SELECT * FROM "{table}" LIMIT :n'), {"n": n})
+        result = conn.execute(
+            text(f"SELECT * FROM {_quote(engine, table)} LIMIT :n"), {"n": n}
+        )
         cols = list(result.keys())
         rows = [dict(r._mapping) for r in result]
     return {"table": table, "columns": cols, "rows": rows}
@@ -143,7 +165,12 @@ def execute_sql(
         }
 
 
+# Dialects that accept a plain `EXPLAIN <stmt>` as a dry-run.
+_EXPLAIN_DIALECTS = {"postgresql", "mysql", "snowflake", "databricks"}
+
+
 def validate_sql(connection_id: str, sql: str) -> dict[str, Any]:
+    """Parse-only / EXPLAIN dry run. Cheap; use before `execute_sql`."""
     if not _is_read_only(sql):
         return {"valid": False, "error": "Only read-only queries are permitted."}
 
@@ -153,9 +180,12 @@ def validate_sql(connection_id: str, sql: str) -> dict[str, Any]:
         with engine.connect() as conn:
             if dialect == "sqlite":
                 conn.execute(text(f"EXPLAIN QUERY PLAN {sql}"))
-            elif dialect == "postgresql":
+            elif dialect in _EXPLAIN_DIALECTS:
                 conn.execute(text(f"EXPLAIN {sql}"))
             else:
+                # BigQuery and any unknown dialect: dry-run by wrapping in a
+                # zero-row outer select (LIMIT 0). Parses the inner SQL without
+                # materializing rows.
                 conn.execute(text(f"SELECT * FROM ({sql}) AS _v LIMIT 0"))
         return {"valid": True}
     except Exception as e:

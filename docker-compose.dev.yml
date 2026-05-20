@@ -1,0 +1,26 @@
+# Local Postgres stand-in for developing dialect-agnostic warehouse code
+# before a real Snowflake / BigQuery / Databricks account is wired up.
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#   psql postgresql://dev:dev@localhost:5432/demo -f examples/seed_demo.sql
+#   python run.py "How many enterprise customers had purchases this month?" \
+#       --dsn postgresql+psycopg://dev:dev@localhost:5432/demo
+#
+# Pairs with `pip install -e ".[postgres]"`. The Postgres dialect uses the same
+# `"name"` identifier quoting and role-based read-only enforcement that the
+# Snowflake code will need — so work done against this container transfers.
+
+services:
+  pg:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: demo
+    ports:
+      - "5432:5432"
+    volumes:
+      - fde-agent-pgdata:/var/lib/postgresql/data
+
+volumes:
+  fde-agent-pgdata:

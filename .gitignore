@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Local data / state
+runs/
+*.sqlite
+*.db
+.env
+
+# Per-engagement customer files — keep these out of the public template
+business_context.md
+deployment.local.yaml

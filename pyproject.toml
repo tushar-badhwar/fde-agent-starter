@@ -1,0 +1,22 @@
+[project]
+name = "fde-agent-starter"
+version = "0.1.0"
+description = "Forward Deployed Engineer starter scaffold for shipping a SQL analytics agent on a customer engagement"
+requires-python = ">=3.10"
+dependencies = [
+    "sqlalchemy>=2.0",
+    "mcp>=1.0",
+    "anthropic>=0.40",
+    "claude-agent-sdk>=0.1",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.1"]
+mysql = ["pymysql>=1.1.0"]
+dev = ["ruff>=0.6", "pytest>=8.0"]
+
+[tool.setuptools.packages.find]
+include = ["tools*", "tracing*", "adapters*"]
+
+[tool.ruff]
+line-length = 110
